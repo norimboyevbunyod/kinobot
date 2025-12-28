@@ -9,14 +9,13 @@ def lang_kb():
     )
 
 def main_menu(user_id, lang, GLAVNI_ADMIN):
-    # Til bazada bo'lmasa default 'uz' qilish
-    if lang not in ['uz', 'ru', 'en']:
-        lang = 'uz'
-        
+    # Tilni tekshirish
+    if lang not in ['uz', 'ru', 'en']: lang = 'uz'
+    
     texts = {
-        'uz': ['Seriallar 🎬', 'Kinolar 🎥', 'Admin Panel ⚙️'], 
-        'ru': ['Сериалы 🎬', 'Кино 🎥', 'Админ Панель ⚙️'], 
-        'en': ['Serials 🎬', 'Movies 🎥', 'Admin Panel ⚙️']
+        'uz': ['Seriallar', 'Kinolar', 'Admin Panel'], 
+        'ru': ['Сериалы', 'Кино', 'Админ'], 
+        'en': ['Serials', 'Movies', 'Admin']
     }
     
     kb = InlineKeyboardMarkup(row_width=2).add(
@@ -24,7 +23,6 @@ def main_menu(user_id, lang, GLAVNI_ADMIN):
         InlineKeyboardButton(texts[lang][1], callback_data="m_kino")
     )
     
-    # Adminlikni tekshirish
     is_admin = db_query("SELECT id FROM admins WHERE id=?", (user_id,), fetch=True, one=True)
     if user_id == GLAVNI_ADMIN or is_admin:
         kb.add(InlineKeyboardButton(texts[lang][2], callback_data="m_admin"))
