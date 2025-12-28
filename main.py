@@ -19,12 +19,19 @@ class BotState(StatesGroup):
     add_ch = State()
 
 async def check_sub(user_id):
+    # Kanallar bazasini tekshirish
     channels = db_query("SELECT id FROM channels", fetch=True)
+    if not channels:
+        return True # Agar kanallar qo'shilmagan bo'lsa, o'tkazib yuboradi
+        
     for ch in channels:
         try:
             m = await bot.get_chat_member(ch[0], user_id)
-            if m.status in ['left', 'kicked']: return False
-        except: continue
+            if m.status in ['left', 'kicked']: 
+                return False
+        except Exception as e:
+            logging.error(f"Kanalni tekshirishda xato: {e}")
+            continue
     return True
 
 @dp.message_handler(commands=['start'])
@@ -35,17 +42,37 @@ async def start(m: types.Message):
 
 @dp.callback_query_handler(lambda c: c.data.startswith('lang_'))
 async def set_lang(c: types.CallbackQuery):
+    try:
+        l = c.data.split('_')[1]
+        # Bazaga tilni saqlash
+        db_query("UPDATE users SET lang=? WHERE id=?", (l, c.from_user.id))
+        
+        # Obunani tekshirish
+        if await check_sub(c.from_user.id):
+            welcome_text = {"uz": "Xush kelibsiz!", "ru": "Добро пожаловать!", "en": "Welcome!"}
+            menu = main_menu(c.from_user.id, l, GLAVNI_ADMIN)
+            await c.message.edit_text(welcome_text.get(l, "Xush kelibsiz!"), reply_markup=menu)
+        else:
+            # Kanallarga azo bolish logic
+            kb = InlineKeyboardMarkup(row_width=1)
+            channels = db_query("SELECT url FROM channels", fetch=True)
+            for ch in channels:
+                kb.add(InlineKeyboardButton("A'zo bo'lish / Подписаться", url=ch[0]))
+            
+            kb.add(InlineKeyboardButton("✅ Tekshirish / Проверить", callback_data=f"recheck_{l}"))
+            await c.message.edit_text("Botdan foydalanish uchun kanallarga a'zo bo'ling:\nПодпишитесь на каналы, чтобы использовать бота:", reply_markup=kb)
+    except Exception as e:
+        logging.error(f"set_lang xatosi: {e}")
+        await c.answer(f"Xatolik yuz berdi: {e}", show_alert=True)
+
+@dp.callback_query_handler(lambda c: c.data.startswith('recheck_'))
+async def recheck_sub(c: types.CallbackQuery):
     l = c.data.split('_')[1]
-    db_query("UPDATE users SET lang=? WHERE id=?", (l, c.from_user.id))
     if await check_sub(c.from_user.id):
-        await c.message.edit_text("Hush kelibsiz!", reply_markup=main_menu(c.from_user.id, l, GLAVNI_ADMIN))
+        menu = main_menu(c.from_user.id, l, GLAVNI_ADMIN)
+        await c.message.edit_text("Rahmat! Endi botdan foydalanishingiz mumkin.", reply_markup=menu)
     else:
-        # Kanalga azo bolish logic
-        kb = InlineKeyboardMarkup(row_width=1)
-        for ch in db_query("SELECT url FROM channels", fetch=True):
-            kb.add(InlineKeyboardButton("A'zo bo'lish", url=ch[0]))
-        kb.add(InlineKeyboardButton("✅ Tekshirish", callback_data="recheck"))
-        await c.message.edit_text("Kanallarga a'zo bo'ling:", reply_markup=kb)
+        await c.answer("Hali hamma kanallarga a'zo bo'lmadingiz!", show_alert=True)
 
 @dp.callback_query_handler(lambda c: c.data == "m_admin")
 async def admin_panel(c: types.CallbackQuery):
@@ -56,22 +83,10 @@ async def admin_panel(c: types.CallbackQuery):
            InlineKeyboardButton("⬅️ Orqaga", callback_data="back_main"))
     await c.message.edit_text("Admin boshqaruv paneli:", reply_markup=kb)
 
-# --- SERIAL KANALIDAN QABUL QILISH ---
-@dp.channel_post_handler()
-async def channel_post(m: types.Message):
-    if m.chat.id == KINO_CHANNEL:
-        # Kino nomi regex orqali ajratish
-        name = re.split(r'\n|\(', m.caption)[0].strip() if m.caption else "Nomsiz kino"
-        if not db_query("SELECT id FROM movies WHERE name=?", (name,), fetch=True, one=True):
-            db_query("INSERT INTO movies (name, file_id) VALUES (?, ?)", (name, m.video.file_id))
-            await bot.send_message(GLAVNI_ADMIN, f"✅ Kino saqlandi: {name}")
-
-    if m.chat.id == SERIAL_CHANNEL:
-        await bot.send_message(GLAVNI_ADMIN, f"Yangi serial qismi keldi. Tasdiqlang yoki nomlang.")
-
 @dp.callback_query_handler(lambda c: c.data == "back_main")
 async def back_main(c: types.CallbackQuery):
-    l = db_query("SELECT lang FROM users WHERE id=?", (c.from_user.id,), fetch=True, one=True)[0]
+    user_data = db_query("SELECT lang FROM users WHERE id=?", (c.from_user.id,), fetch=True, one=True)
+    l = user_data[0] if user_data else 'uz'
     await c.message.edit_text("Asosiy menyu:", reply_markup=main_menu(c.from_user.id, l, GLAVNI_ADMIN))
 
 if __name__ == '__main__':
